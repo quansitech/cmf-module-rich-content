@@ -25,6 +25,8 @@ RichText::editor('content')->label('正文')->columnSpanFull();
 
 让正文宿主模型 `implements Filament\Forms\Components\RichEditor\Models\Contracts\HasRichContent`，并同时使用 `Quansitech\Cmf\Media\Concerns\HasMedia` 和 `Quansitech\Cmf\RichContent\Concerns\HasLocalizedRichContent`。默认处理 `content` 字段；配置模型的 `$mediaRichContentAttributes` 可指定其他字段。保存时清洗 HTML；仅当前操作者有媒体创建权限时尝试转存远程或内联图片，无权限时仍可正常保存清洗后的正文。保存后同步媒体引用，避免正文图片和视频被当作孤立媒体清理。
 
+若旧正文仍用 `data-id`，且曾变更 CDN 域名或媒体路径前缀，可按当前驱动配置可信旧媒体根，例如 `cmf-rich-content.legacy_media_roots = ['local' => ['/cmf-media', 'https://old-cdn.example.com/media']]`。仅改标题或不改变该媒体的旧节点集合时，已有旧引用无需配置即可保留；如果同号节点混用、编辑时改变了这组节点，则通过旧根与完整对象路径确认保留哪个引用。请在此类编辑前配置旧根；根相对旧地址（如默认本地盘的 `/cmf-media/...`）和绝对旧地址须按正文里实际保存的形式分别配置。旧根不用于建立新引用。
+
 前台可直接使用 Blade 组件，它会清洗正文、刷新媒体 URL 并加载画面限宽及 SVG 动画所需资源：
 
 ```blade

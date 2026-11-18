@@ -18,6 +18,10 @@ return [
     */
     'auto_localize' => env('CMF_RICH_CONTENT_AUTO_LOCALIZE', true),
 
+    // 按当前媒体 disk 配置可信的旧 HTTP(S) 或站点根相对媒体前缀，仅用于保留已有引用。
+    // 例如 ['local' => ['/cmf-media', 'https://old-cdn.example.com/media']]。
+    'legacy_media_roots' => [],
+
     /*
     |--------------------------------------------------------------------------
     | 保存前处理

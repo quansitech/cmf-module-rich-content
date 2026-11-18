@@ -51,14 +51,15 @@ function fixture() {
     return { window, document, docEvents, events, notifications, inserted, load, api: window.CmfRichContentMediaUpload };
 }
 
-for (const failure of [false, true]) {
-    test(`video upload ${failure ? 'failure' : 'success'} notifies without an unhandled rejection`, async () => {
+for (const [failure, mixedAssets] of [[false, false], [true, false], [false, true], [true, true]]) {
+    test(`video upload ${failure ? 'failure' : 'success'}${mixedAssets ? ' with a legacy uploader' : ''} handles notifications without an unhandled rejection`, async () => {
         const f = fixture();
         const nav = element();
         const body = element();
         const dialog = element();
         dialog.querySelector = (selector) => ({ '.tox-dialog__body-nav': nav, '.tox-dialog__body': body, '.cmf-video-tab-panel': body.children[0] }[selector] ?? null);
         f.document.querySelectorAll = () => [dialog];
+        if (mixedAssets) delete f.api.notify;
         f.api.endpoints = () => ({ maxSize: 0 });
         f.api.upload = async () => {
             if (failure) throw new Error('上传失败测试');
@@ -72,8 +73,8 @@ for (const failure of [false, true]) {
         input.events.change();
         await new Promise(setImmediate);
         assert.equal(pick.disabled, false);
-        assert.equal(f.notifications.length, 1);
-        assert.equal(f.notifications[0].type, failure ? 'error' : 'success');
+        assert.equal(f.notifications.length, mixedAssets ? 0 : 1);
+        if (!mixedAssets) assert.equal(f.notifications[0].type, failure ? 'error' : 'success');
         if (failure) {
             assert.equal(status.textContent, '上传失败测试');
             assert.equal(f.inserted.length, 0);

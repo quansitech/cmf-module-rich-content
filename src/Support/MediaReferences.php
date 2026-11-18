@@ -101,19 +101,21 @@ final class MediaReferences
         }
 
         $ids = [];
-        $legacy = [];
+        $elements = self::mediaElements(HtmlDocument::load($html));
 
-        foreach (self::mediaElements(HtmlDocument::load($html)) as $element) {
+        foreach ($elements as $element) {
             $id = self::id($element->getAttribute(self::ATTRIBUTE));
             if ($id !== null) {
                 $ids[$id] = $id;
             }
 
-            $id = self::legacyId($element->getAttribute('data-id'));
-            if ($id !== null) {
-                $source = strtolower($element->tagName) === 'image'
-                    ? ($element->getAttribute('href') ?: $element->getAttribute('xlink:href'))
-                    : $element->getAttribute('src');
+        }
+
+        $legacy = [];
+        foreach ($elements as $element) {
+            $reference = self::legacyReference($element);
+            if ($reference !== null) {
+                [$id, $source] = $reference;
                 $legacy[$id][] = $source;
             }
         }
@@ -160,8 +162,7 @@ final class MediaReferences
     /**
      * 旧属性（data-id）指向的媒体：必须是真实记录，且 src 确实是这张媒体的地址。
      *
-     * 升级前的正文只靠 id 认引用；为了让这些行在「只改标题」的保存里也不丢
-     * 引用，同步与渲染都会走这里做二次确认，而不是直接信任 data-id。
+     * 新采纳和渲染使用当前媒体地址确认；历史地址漂移仅在同步既有 usage 时兼容。
      */
     /**
      * @param  array<int, Media>|null  $mediaMap
@@ -208,57 +209,160 @@ final class MediaReferences
             ->keyBy(static fn (Media $media): int => (int) $media->id)->all();
     }
 
-    /**
-     * src 是否指向该媒体的对象：同 URL，或同一磁盘根下以该媒体 path 结尾。
-     *
-     * 签名地址每次都不同，不能只比整串 URL；同时要比 path 而不是仅比目录前缀，
-     * 否则同目录下另一张图会被误认。
-     */
+    /** 签名 query 可变，但域名、协议、端口和完整路径须一致。 */
     public static function pointsAtMedia(string $src, Media $media): bool
     {
         $mediaUrl = (string) $media->url();
+        $actual = self::urlIdentity($src);
+        $expected = self::urlIdentity($mediaUrl);
 
-        if ($mediaUrl !== '' && $mediaUrl === $src) {
-            return true;
-        }
-
-        $mediaPath = ltrim((string) $media->path, '/');
-
-        if ($mediaPath === '') {
+        if ($actual === null || $expected === null) {
             return false;
         }
 
-        $path = (string) parse_url($src, PHP_URL_PATH);
-
-        // 以完整对象 path 结尾才算同一张图；只比目录前缀会把同目录其它文件认错
-        if ($path === '' || ! str_ends_with($path, '/'.$mediaPath)) {
-            return false;
+        if ($expected[0] === '' && $actual[0] !== '') {
+            // 本地盘可能给出根相对 URL，而编辑器可能把它扩展为本站绝对地址。
+            $app = self::urlIdentity(rtrim((string) config('app.url'), '/').'/');
+            if ($app !== null && $app[0] === $actual[0]) {
+                $actual[0] = '';
+            }
         }
 
-        // host 以媒体自身 URL 为准：裸域云盘、带路径前缀的 CDN、相对路径的本地盘
-        // 都能覆盖，也不再依赖 filesystems 配置里是否写了 url。
-        $mediaHost = (string) parse_url($mediaUrl, PHP_URL_HOST);
-        $srcHost = (string) parse_url($src, PHP_URL_HOST);
+        return $actual === $expected;
+    }
 
-        if ($mediaHost !== '') {
-            return $srcHost === '' || strcasecmp($mediaHost, $srcHost) === 0;
+    /** @return array{string, string}|null */
+    private static function urlIdentity(string $url): ?array
+    {
+        if (str_contains($url, '\\') || preg_match('/[\x00-\x20\x7f]/', $url) === 1) {
+            return null;
         }
 
-        // 媒体地址是相对路径（本地盘）：允许相对 src，或本站绝对地址
-        return $srcHost === ''
-            || strcasecmp($srcHost, (string) parse_url((string) config('app.url'), PHP_URL_HOST)) === 0;
+        $parts = parse_url($url);
+        $path = $parts['path'] ?? '';
+        if ($parts === false || ! str_starts_with($path, '/') || isset($parts['user']) || isset($parts['pass'])) {
+            return null;
+        }
+
+        $scheme = strtolower($parts['scheme'] ?? '');
+        $host = strtolower($parts['host'] ?? '');
+        if ($host === '' && $scheme === '' && ! str_starts_with($url, '//')) {
+            return ['', $path];
+        }
+
+        if ($host === '' || ! in_array($scheme, ['http', 'https'], true)) {
+            return null;
+        }
+
+        return [$scheme.'://'.$host.':'.($parts['port'] ?? ($scheme === 'https' ? 443 : 80)), $path];
+    }
+
+    /** @return array{int, string}|null */
+    private static function legacyReference(DOMElement $element): ?array
+    {
+        $id = self::legacyId($element->getAttribute('data-id'));
+        $source = trim(strtolower($element->tagName) === 'image'
+            ? ($element->getAttribute('href') ?: $element->getAttribute('xlink:href'))
+            : $element->getAttribute('src'));
+
+        return $id !== null && $source !== '' ? [$id, $source] : null;
+    }
+
+    /** @return array<int, array<string, string>> */
+    private static function legacyNodes(string $html): array
+    {
+        if (stripos($html, 'data-id') === false) {
+            return [];
+        }
+
+        $nodes = [];
+        foreach (self::mediaElements(HtmlDocument::load($html)) as $element) {
+            $reference = self::legacyReference($element);
+            if ($reference !== null) {
+                [$id, $source] = $reference;
+                $nodes[$id][strtolower($element->tagName).':'.$source] = $source;
+            }
+        }
+
+        return $nodes;
+    }
+
+    /** @return list<int> */
+    private static function retainedLegacyIds(Model $record, string $field, string $html, mixed $previous): array
+    {
+        if (! is_string($previous) || ! method_exists($record, 'mediaUsages')) {
+            return [];
+        }
+
+        $current = self::legacyNodes($html);
+        $previousNodes = array_intersect_key(self::legacyNodes($previous), $current);
+        if ($previousNodes === []) {
+            return [];
+        }
+
+        $canonical = array_fill_keys(self::ids($previous), true);
+        $existing = $record->mediaUsages()->where('field', $field)->whereIn('media_id', array_keys($previousNodes))
+            ->pluck('media_id')->map(static fn (mixed $id): int => (int) $id)->all();
+        $retained = [];
+        $changed = [];
+        foreach ($existing as $id) {
+            $before = $previousNodes[$id];
+            $after = $current[$id];
+            $shared = array_intersect_key($before, $after);
+            if ($shared === []) {
+                continue;
+            }
+
+            // 节点集合未变才能无配置保留；删除可信节点后，不能让同号节点继承引用。
+            if (! isset($canonical[$id]) && count($shared) === count($before) && count($shared) === count($after)) {
+                $retained[] = $id;
+            } else {
+                $changed[$id] = $shared;
+            }
+        }
+
+        $roots = (array) config('cmf-rich-content.legacy_media_roots', []);
+        if ($roots !== []) {
+            foreach (self::medias(array_keys($changed)) as $id => $media) {
+                if (! $media->path) {
+                    continue;
+                }
+
+                foreach ((array) ($roots[$media->disk] ?? []) as $root) {
+                    if (! is_string($root) || $root === '' || str_starts_with($root, '//') || strpbrk($root, '?#') !== false) {
+                        continue;
+                    }
+
+                    $expected = self::urlIdentity(rtrim($root, '/').'/'.ltrim((string) $media->path, '/'));
+                    if ($expected === null) {
+                        continue;
+                    }
+
+                    foreach ($changed[$id] as $source) {
+                        if (self::urlIdentity($source) === $expected) {
+                            $retained[] = $id;
+
+                            continue 3;
+                        }
+                    }
+                }
+            }
+        }
+
+        return $retained;
     }
 
     /**
      * 按最终 HTML 整体替换引用；不存在的媒体不能插入外键，清空正文也需要 detach。
      */
-    public static function sync(Model $record, string $field, string $html): void
+    public static function sync(Model $record, string $field, string $html, ?string $previousHtml = null): void
     {
         if (! method_exists($record, 'syncMedia')) {
             return;
         }
 
-        $ids = self::allIds($html);
+        $previous = $previousHtml ?? $record->getRawOriginal($field);
+        $ids = [...self::allIds($html), ...self::retainedLegacyIds($record, $field, $html, $previous)];
 
         if ($ids !== []) {
             /** @var class-string<Media> $model */

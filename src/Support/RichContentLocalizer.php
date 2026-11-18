@@ -64,6 +64,8 @@ final class RichContentLocalizer
             return false;
         }
 
+        // save() 返回时 Eloquent 已同步原值；提前保留实际写入前的正文。
+        $previous = $record->getRawOriginal($field);
         $result = $this->prepareHtml($original, $uploaderId);
         $final = $result->html;
         $changed = $final !== $original;
@@ -71,10 +73,14 @@ final class RichContentLocalizer
         if ($changed) {
             $record->setAttribute($field, $final);
             // 保留宿主 saving 派生/校验；trait 不再从 saved 递归调用本方法。
-            $record->save();
+            if (! $record->save()) {
+                return false;
+            }
+
+            $final = $record->getRawOriginal($field);
         }
 
-        MediaReferences::sync($record, $field, $final);
+        MediaReferences::sync($record, $field, is_string($final) ? $final : '', is_string($previous) ? $previous : '');
 
         return $changed;
     }

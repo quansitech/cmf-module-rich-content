@@ -77,6 +77,16 @@ final class MediaReferencesTest extends TestCase
         $this->assertSame([999999], MediaReferences::ids($html));
     }
 
+    public function test_legacy_cloud_reference_requires_the_full_origin_and_path(): void
+    {
+        $media = $this->legacyMedia(82);
+
+        $this->assertTrue(MediaReferences::pointsAtMedia('https://storage.example.com:443/cmf-media/82/abc.png?signature=old', $media));
+        $this->assertFalse(MediaReferences::pointsAtMedia('https://storage.example.com/elsewhere/82/abc.png', $media));
+        $this->assertFalse(MediaReferences::pointsAtMedia('/cmf-media/82/abc.png', $media));
+        $this->assertFalse(MediaReferences::pointsAtMedia('https://storage.example.com:444/cmf-media/82/abc.png', $media));
+    }
+
     private function legacyMedia(int $id): Media
     {
         $media = new class extends Media
