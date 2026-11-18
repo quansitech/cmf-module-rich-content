@@ -1,0 +1,3 @@
+.cmf-rich-content-body :is(img, video, svg) { max-width: 100%; height: auto; }
+.cmf-rich-content-body :is(video, svg) { display: block; }
+.cmf-rich-content-body iframe { max-width: 100%; }
