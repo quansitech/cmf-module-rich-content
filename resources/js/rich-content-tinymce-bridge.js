@@ -401,10 +401,10 @@
 
         setStatus('正在上传…');
 
-        uploader.upload(editor, file, 'image', (progress) => {
-            const percent = Number(progress?.percent);
+        uploader.upload(editor, file, 'image', (label, ratio) => {
+            const percent = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
 
-            setStatus(Number.isFinite(percent) ? `正在上传… ${Math.round(percent)}%` : '正在上传…');
+            setStatus(Number.isFinite(percent) ? `${label} ${percent}%` : label);
         }).then((media) => {
             try {
                 editor.windowManager.close();

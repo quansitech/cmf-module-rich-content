@@ -6,6 +6,7 @@ namespace Quansitech\Cmf\RichContent\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Quansitech\Cmf\Media\Models\Media;
 use Quansitech\Cmf\RichContent\Support\ImportResult;
 use Quansitech\Cmf\RichContent\Support\MediaReferences;
 
@@ -61,6 +62,7 @@ final class MediaReferencesTest extends TestCase
             .'<img src="https://mmbiz.qpic.cn/b.png" data-id="d1ddb3fb-d1d8-43ed-8023-a66a8fb5cbe1">';
 
         $this->assertSame([], MediaReferences::ids($html));
+        $this->assertSame([], MediaReferences::allIds($html, [123 => $this->legacyMedia(123)]));
         $this->assertSame(123, MediaReferences::legacyId('123'));
         $this->assertNull(MediaReferences::legacyId('12x'));
     }
@@ -69,9 +71,23 @@ final class MediaReferencesTest extends TestCase
     {
         // 新属性指向已物删的 id、旧属性仍指向在用媒体时，同步口径要两个都留
         // （不存在的那个交给 sync() 的 whereIn 过滤），否则旧引用会被静默丢掉。
-        $html = '<img src="/cmf-media/82/abc.png" data-cmf-media="999999" data-id="82">';
+        $html = '<img src="https://storage.example.com/cmf-media/82/abc.png?signature=old" data-cmf-media="999999" data-id="82">';
 
-        $this->assertSame([999999, 82], MediaReferences::allIds($html));
+        $this->assertSame([999999, 82], MediaReferences::allIds($html, [82 => $this->legacyMedia(82)]));
         $this->assertSame([999999], MediaReferences::ids($html));
+    }
+
+    private function legacyMedia(int $id): Media
+    {
+        $media = new class extends Media
+        {
+            public function url(int $ttl = 600): ?string
+            {
+                return 'https://storage.example.com/cmf-media/'.$this->path.'?signature=new';
+            }
+        };
+        $media->setRawAttributes(['id' => $id, 'path' => $id.'/abc.png']);
+
+        return $media;
     }
 }

@@ -23,7 +23,7 @@ use Quansitech\Cmf\RichContent\Support\RichText;
 RichText::editor('content')->label('正文')->columnSpanFull();
 ```
 
-让正文宿主模型 `implements Filament\Forms\Components\RichEditor\Models\Contracts\HasRichContent`，并同时使用 `Quansitech\Cmf\Media\Concerns\HasMedia` 和 `Quansitech\Cmf\RichContent\Concerns\HasLocalizedRichContent`。默认处理 `content` 字段；配置模型的 `$mediaRichContentAttributes` 可指定其他字段。保存时清洗 HTML、尝试将远程图片落地，保存后同步媒体引用，避免正文图片和视频被当作孤立媒体清理。
+让正文宿主模型 `implements Filament\Forms\Components\RichEditor\Models\Contracts\HasRichContent`，并同时使用 `Quansitech\Cmf\Media\Concerns\HasMedia` 和 `Quansitech\Cmf\RichContent\Concerns\HasLocalizedRichContent`。默认处理 `content` 字段；配置模型的 `$mediaRichContentAttributes` 可指定其他字段。保存时清洗 HTML；仅当前操作者有媒体创建权限时尝试转存远程或内联图片，无权限时仍可正常保存清洗后的正文。保存后同步媒体引用，避免正文图片和视频被当作孤立媒体清理。
 
 前台可直接使用 Blade 组件，它会清洗正文、刷新媒体 URL 并加载画面限宽及 SVG 动画所需资源：
 

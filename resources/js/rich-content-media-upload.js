@@ -450,6 +450,7 @@
 
     window.CmfRichContentMediaUpload = {
         upload: upload,
+        notify: notify,
         endpoints: resolveEndpoints,
         videoHtml: videoHtml,
     };

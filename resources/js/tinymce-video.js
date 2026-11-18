@@ -227,12 +227,12 @@
                     editor.windowManager.close();
                     editor.insertContent(videoHtml(media.url, media.id, 0, 0));
                     editor.undoManager.add();
-                    notify(editor, "视频已插入", "success");
+                    window.CmfRichContentMediaUpload?.notify(editor, "视频已插入", "success");
                 })
                 .catch(function (error) {
                     pick.disabled = false;
                     status.textContent = error.message || "上传失败";
-                    notify(editor, error.message || "上传失败", "error");
+                    window.CmfRichContentMediaUpload?.notify(editor, error.message || "上传失败", "error");
                 });
         });
 

@@ -9,6 +9,7 @@ use GuzzleHttp\Handler\CurlHandler;
 use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Psr7\UriResolver;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -76,6 +77,7 @@ final class RemoteImageImporter
         /** @var list<array{source: string, reason: string}> $failed */
         $failed = [];
 
+        $canCreateMedia = null;
         $attempted = 0;
         $adopted = 0;
         $maxImages = max(0, $maxImages ?? (int) ($config['max_images_per_save'] ?? 10));
@@ -99,6 +101,11 @@ final class RemoteImageImporter
             $source = $this->resolveSource($image);
 
             if ($source === null) {
+                continue;
+            }
+
+            $canCreateMedia ??= Gate::allows('create', config('cmf-media.model', Media::class));
+            if (! $canCreateMedia) {
                 continue;
             }
 

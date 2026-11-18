@@ -4,21 +4,27 @@ declare(strict_types=1);
 
 namespace Quansitech\Cmf\RichContent\Tests\Feature;
 
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Http;
 use Quansitech\Cmf\Media\Models\Media;
 use Quansitech\Cmf\Media\Support\MediaUploader;
 use Quansitech\Cmf\RichContent\Support\RemoteImageGuard;
 use Quansitech\Cmf\RichContent\Support\RemoteImageImporter;
+use Quansitech\Cmf\RichContent\Support\RichContentLocalizer;
 use Quansitech\Cmf\RichContent\Tests\TestCase;
 
 final class RemoteImageTransportTest extends TestCase
 {
+    private bool $canCreateMedia = true;
+
     private const PNG = "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82";
 
     protected function setUp(): void
     {
         parent::setUp();
         Http::preventStrayRequests();
+        Gate::before(fn (?Authenticatable $user, string $ability): ?bool => $ability === 'create' ? $this->canCreateMedia : null);
     }
 
     private function importer(array $ips = ['93.184.216.34']): RemoteImageImporter
@@ -35,6 +41,31 @@ final class RemoteImageTransportTest extends TestCase
         $uploader->method('store')->willReturn($media);
 
         return new RemoteImageImporter(new RemoteImageGuard([], static fn (): array => $ips), $uploader);
+    }
+
+    public function test_localizer_without_media_permission_still_cleans_html_without_fetching_or_storing_images(): void
+    {
+        $this->canCreateMedia = false;
+        Http::fake();
+        $uploader = $this->createMock(MediaUploader::class);
+        $uploader->expects($this->never())->method('store');
+        $this->app->instance(RemoteImageImporter::class, new RemoteImageImporter(
+            new RemoteImageGuard([], static function (): array {
+                self::fail('Denied import must not resolve remote image addresses.');
+            }),
+            $uploader,
+        ));
+        $inline = 'data:image/png;base64,'.base64_encode(self::PNG);
+        $result = $this->app->make(RichContentLocalizer::class)->prepareHtml(
+            '<script>bad()</script><img src="https://cdn.example.com/a.png"><img src="'.$inline.'">',
+            uploaderId: 42,
+        );
+
+        $this->assertStringNotContainsString('<script', $result->html);
+        $this->assertStringContainsString('https://cdn.example.com/a.png', $result->html);
+        $this->assertStringContainsString($inline, $result->html);
+        $this->assertSame([], $result->imported);
+        Http::assertNothingSent();
     }
 
     public function test_pins_each_hop_and_resolves_relative_redirects_without_proxy_or_auto_redirect(): void

@@ -91,31 +91,39 @@ final class MediaReferences
      * 同步引用时用它——升级前的正文只有 data-id，只认新属性会在「只改其它字段」
      * 的保存里把引用清空，进而被 prune 当孤儿删掉。
      *
+     * @param  array<int, Media>|null  $mediaMap
      * @return list<int>
      */
-    public static function allIds(string $html): array
+    public static function allIds(string $html, ?array $mediaMap = null): array
     {
-        if (stripos($html, '<img') === false && stripos($html, '<image') === false && stripos($html, '<video') === false) {
-            return [];
-        }
-
         if (stripos($html, self::ATTRIBUTE) === false && stripos($html, 'data-id') === false) {
             return [];
         }
 
         $ids = [];
+        $legacy = [];
 
         foreach (self::mediaElements(HtmlDocument::load($html)) as $element) {
-            // 这里刻意不校验 src：同步引用必须保守——宁可多留一条引用（sync 还会按
-            // 媒体是否存在过滤），也不能因为地址漂移（换盘、签名过期、迁移）在保存时
-            // 把仍在正文里的图 detach，进而被 prune 物理删除。严格校验留给渲染与采纳。
-            // 两个属性都收：新属性可能指向已物删的 id，旧属性仍可能是在用媒体；
-            // 谁无效交给 sync() 的 whereIn 过滤，这里只保证「宁可多留」。
-            foreach ([self::ATTRIBUTE, 'data-id'] as $attribute) {
-                $id = self::id($element->getAttribute($attribute));
+            $id = self::id($element->getAttribute(self::ATTRIBUTE));
+            if ($id !== null) {
+                $ids[$id] = $id;
+            }
 
-                if ($id !== null) {
+            $id = self::legacyId($element->getAttribute('data-id'));
+            if ($id !== null) {
+                $source = strtolower($element->tagName) === 'image'
+                    ? ($element->getAttribute('href') ?: $element->getAttribute('xlink:href'))
+                    : $element->getAttribute('src');
+                $legacy[$id][] = $source;
+            }
+        }
+
+        $mediaMap ??= self::medias(array_keys($legacy));
+        foreach ($legacy as $id => $sources) {
+            foreach ($sources as $source) {
+                if (self::legacyMedia($id, $source, $mediaMap) !== null) {
                     $ids[$id] = $id;
+                    break;
                 }
             }
         }

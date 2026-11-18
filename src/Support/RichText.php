@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Quansitech\Cmf\RichContent\Support;
 
+use Illuminate\Support\Facades\Gate;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Quansitech\Cmf\Media\Models\Media;
 use Quansitech\Cmf\Media\Support\MediaUploader;
@@ -28,9 +29,13 @@ final class RichText
             ->profile('default')
             ->language(app()->getLocale())
             ->toolbarSticky(true)
-            ->saveUploadedFileAttachmentUsing(static fn (TemporaryUploadedFile $file): int|string|null => app(MediaUploader::class)
-                ->store($file, uploaderId: auth()->id(), rule: UploadRule::resolve((string) config('cmf-rich-content.remote_images.upload_rule', 'editor')))
-                ->getKey())
+            ->saveUploadedFileAttachmentUsing(static function (TemporaryUploadedFile $file): int|string|null {
+                Gate::authorize('create', config('cmf-media.model', Media::class));
+
+                return app(MediaUploader::class)
+                    ->store($file, uploaderId: auth()->id(), rule: UploadRule::resolve((string) config('cmf-rich-content.remote_images.upload_rule', 'editor')))
+                    ->getKey();
+            })
             ->getFileAttachmentUrlUsing(static function (mixed $file): ?string {
                 // 编辑器直传图片在保存前 data-id 还是 Livewire 的临时文件 key（UUID），
                 // 它不是媒体 id，交给远程图落地流程去搬字节，这里不能拿去查库。
