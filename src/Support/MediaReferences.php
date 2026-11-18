@@ -7,6 +7,7 @@ namespace Quansitech\Cmf\RichContent\Support;
 use DOMElement;
 use Illuminate\Database\Eloquent\Model;
 use Quansitech\Cmf\Media\Models\Media;
+use Quansitech\Cmf\Media\Support\MediaManager;
 
 /**
  * 正文附件 ID 的唯一口径：只信任 img 节点上完整的正整数，不把 UUID/数字前缀当媒体。
@@ -329,17 +330,8 @@ final class MediaReferences
                 }
 
                 foreach ((array) ($roots[$media->disk] ?? []) as $root) {
-                    if (! is_string($root) || $root === '' || str_starts_with($root, '//') || strpbrk($root, '?#') !== false) {
-                        continue;
-                    }
-
-                    $expected = self::urlIdentity(rtrim($root, '/').'/'.ltrim((string) $media->path, '/'));
-                    if ($expected === null) {
-                        continue;
-                    }
-
                     foreach ($changed[$id] as $source) {
-                        if (self::urlIdentity($source) === $expected) {
+                        if (self::pointsAtHistoricalMedia($source, $root, (string) $media->path)) {
                             $retained[] = $id;
 
                             continue 3;
@@ -350,6 +342,52 @@ final class MediaReferences
         }
 
         return $retained;
+    }
+
+    private static function pointsAtHistoricalMedia(string $source, mixed $root, string $objectPath): bool
+    {
+        $prefix = '';
+        $authType = '';
+        if (is_array($root)) {
+            $prefix = $root['path_prefix'] ?? '';
+            $authType = $root['auth_type'] ?? '';
+            $root = $root['url'] ?? null;
+        }
+
+        if (! is_string($root) || $root === '' || str_starts_with($root, '//') || strpbrk($root, '?#') !== false || ! is_string($prefix)) {
+            return false;
+        }
+
+        $path = ltrim($objectPath, '/');
+        $prefix = MediaManager::normalizeCdnPathPrefix($prefix);
+        if ($prefix !== '') {
+            $directory = $prefix.'/';
+            if (! str_starts_with($path, $directory)) {
+                return false;
+            }
+
+            $path = substr($path, strlen($directory));
+        }
+
+        $base = self::urlIdentity(rtrim($root, '/').'/');
+        $actual = self::urlIdentity($source);
+        if ($path === '' || $base === null || $actual === null || $base[0] !== $actual[0] || ! str_starts_with($actual[1], $base[1])) {
+            return false;
+        }
+
+        $relative = substr($actual[1], strlen($base[1]));
+        if (in_array($authType, ['', 'type_a', 'type_d'], true)) {
+            return $relative === $path;
+        }
+
+        // 只接受显式配置的旧签名路径结构，不用旧密钥验签，也不据此创建引用。
+        $signedSegments = match ($authType) {
+            'type_b' => '[0-9]{12}/[a-f0-9]{32}',
+            'type_c' => '[a-f0-9]{32}/[a-f0-9]+',
+            default => null,
+        };
+
+        return $signedSegments !== null && preg_match('~\A'.$signedSegments.'/'.preg_quote($path, '~').'\z~', $relative) === 1;
     }
 
     /**

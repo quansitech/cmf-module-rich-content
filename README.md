@@ -27,6 +27,18 @@ RichText::editor('content')->label('正文')->columnSpanFull();
 
 若旧正文仍用 `data-id`，且曾变更 CDN 域名或媒体路径前缀，可按当前驱动配置可信旧媒体根，例如 `cmf-rich-content.legacy_media_roots = ['local' => ['/cmf-media', 'https://old-cdn.example.com/media']]`。仅改标题或不改变该媒体的旧节点集合时，已有旧引用无需配置即可保留；如果同号节点混用、编辑时改变了这组节点，则通过旧根与完整对象路径确认保留哪个引用。请在此类编辑前配置旧根；根相对旧地址（如默认本地盘的 `/cmf-media/...`）和绝对旧地址须按正文里实际保存的形式分别配置。旧根不用于建立新引用。
 
+若旧 COS CDN 剥掉了对象目录，请在对应旧根记录**当时**的 `path_prefix`，无需修改当前 CDN 配置：
+
+```php
+'legacy_media_roots' => [
+    'cos' => [
+        ['url' => 'https://old-cdn.example.com', 'path_prefix' => 't4tstudio'],
+    ],
+],
+```
+
+例如对象 key `t4tstudio/image/ab/photo.png` 只匹配该旧根下的 `/image/ab/photo.png`；未配置前缀的字符串旧根仍按完整对象 key 匹配。若旧地址使用腾讯云 CDN Type B/C 路径鉴权，请在该旧根额外指定 `'auth_type' => 'type_b'` 或 `'auth_type' => 'type_c'`。匹配仅识别相应的历史鉴权路径格式，不需要旧密钥，也不会建立新的引用。
+
 前台可直接使用 Blade 组件，它会清洗正文、刷新媒体 URL 并加载画面限宽及 SVG 动画所需资源：
 
 ```blade

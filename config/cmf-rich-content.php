@@ -20,6 +20,8 @@ return [
 
     // 按当前媒体 disk 配置可信的旧 HTTP(S) 或站点根相对媒体前缀，仅用于保留已有引用。
     // 例如 ['local' => ['/cmf-media', 'https://old-cdn.example.com/media']]。
+    // COS CDN 曾剥掉对象目录时，可用 ['cos' => [['url' => 'https://old-cdn.example.com', 'path_prefix' => 'old-directory']]]。
+    // 历史 Type B/C 路径鉴权需在对应旧根指定 'auth_type' => 'type_b' 或 'type_c'。
     'legacy_media_roots' => [],
 
     /*

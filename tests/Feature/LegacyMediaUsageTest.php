@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\DataProvider;
+use Quansitech\Cmf\Media\Cdn\Tencent\TypeBSigner;
+use Quansitech\Cmf\Media\Cdn\Tencent\TypeCSigner;
 use Quansitech\Cmf\Media\Concerns\HasMedia;
 use Quansitech\Cmf\Media\Jobs\DeleteMediaJob;
 use Quansitech\Cmf\Media\Models\Media;
@@ -138,6 +140,62 @@ final class LegacyMediaUsageTest extends TestCase
         ];
     }
 
+    #[DataProvider('cosHistoryEdits')]
+    public function test_cos_history_matches_only_the_configured_public_path(string $authType, string $keptNode, bool $retained): void
+    {
+        config([
+            'filesystems.disks.cmf-media-cos' => [
+                'driver' => 'local', 'root' => $this->app->storagePath('media'),
+                'url' => 'https://new.example.test/media',
+                'cdn' => ['path_prefix' => 'current-prefix'],
+            ],
+            'cmf-rich-content.legacy_media_roots' => [
+                'cos' => [['url' => 'https://old.example.test/assets', 'path_prefix' => '/ t4tstudio /', 'auth_type' => $authType]],
+            ],
+        ]);
+        Storage::forgetDisk('cmf-media-cos');
+        $media = $this->createMedia('cos', 't4tstudio/image/ab/photo.png');
+        $root = 'https://old.example.test/assets';
+        $path = '/image/ab/photo.png';
+        $signer = match ($authType) {
+            'type_b' => new TypeBSigner('test-key'),
+            'type_c' => new TypeCSigner('test-key'),
+            default => null,
+        };
+        $url = $signer?->sign($root, $path, 1600000000) ?? $root.$path.'?sign=old';
+        $nodes = [
+            'valid' => $this->image($media, $url),
+            'unrelated' => $this->image($media, str_replace($path, '/elsewhere'.$path, $url)),
+            'full_key' => $this->image($media, str_replace($path, '/t4tstudio'.$path, $url)),
+            'other_origin' => $this->image($media, str_replace('old.example.test', 'external.example.test', $url)),
+            'unsigned' => $this->image($media, $root.$path),
+            'wrong_format' => $this->image($media, $root.'/invalid/'.$path),
+        ];
+        $post = LegacyMediaPost::create(['title' => 'Historical', 'content' => implode('', $nodes)]);
+        $this->assertFalse($post->mediaUsages()->exists());
+        // Seed the usage originally recorded before the CDN migration.
+        $usage = $post->attachMedia((int) $media->getKey(), 'content')->getKey();
+
+        $post->update(['content' => $nodes[$keptNode]]);
+        $this->assertSame($retained ? $usage : null, $post->mediaUsages()->first()?->getKey());
+        $this->assertSame($retained ? 1 : 0, (int) $media->refresh()->ref_count);
+        $this->assertSame(! $retained, $media->trashed());
+    }
+
+    public static function cosHistoryEdits(): array
+    {
+        return [
+            'keep a query-signed historical node' => ['', 'valid', true],
+            'keep a Type B signed historical node' => ['type_b', 'valid', true],
+            'keep a Type C signed historical node' => ['type_c', 'valid', true],
+            'different path with the same signature' => ['type_b', 'unrelated', false],
+            'full object key is not the public path' => ['', 'full_key', false],
+            'unsigned path cannot replace a Type B URL' => ['type_b', 'unsigned', false],
+            'invalid Type C signature segment layout' => ['type_c', 'wrong_format', false],
+            'matching signed path under a different origin' => ['type_c', 'other_origin', false],
+        ];
+    }
+
     private function setDiskUrl(string $url): void
     {
         config(['filesystems.disks.cmf-media-local' => [
@@ -146,10 +204,10 @@ final class LegacyMediaUsageTest extends TestCase
         Storage::forgetDisk('cmf-media-local');
     }
 
-    private function createMedia(): Media
+    private function createMedia(string $disk = 'local', string $path = 'ab/photo.png'): Media
     {
         return Media::create([
-            'disk' => 'local', 'path' => 'ab/photo.png', 'hash' => str_repeat('a', 32),
+            'disk' => $disk, 'path' => $path, 'hash' => str_repeat('a', 32),
             'original_name' => 'photo.png', 'mime' => 'image/png', 'ext' => 'png', 'size' => 10,
         ]);
     }
