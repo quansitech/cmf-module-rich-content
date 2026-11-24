@@ -13,7 +13,7 @@
         "illuminate/http": "^11.0 || ^12.0 || ^13.0",
         "illuminate/support": "^11.0 || ^12.0 || ^13.0",
         "livewire/livewire": "^4.0",
-        "php": "^8.3",
+        "php": "^8.5",
         "quansitech/cmf-module-media": "^1.6",
         "tinymce/tinymce": "^8.0"
     },

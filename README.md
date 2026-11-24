@@ -4,7 +4,7 @@ QS CMF 的 TinyMCE 富文本模块，支持格式化粘贴、cmf-media 图片/�
 
 ## 安装
 
-在已初始化的 Filament 5 / QS CMF 项目中（PHP 8.3+、Livewire 4）：
+在已初始化的 Filament 5 / QS CMF 项目中（PHP 8.5+、Livewire 4）：
 
 ```bash
 composer require quansitech/cmf-module-rich-content
